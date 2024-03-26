@@ -1,0 +1,217 @@
+---
+title: "Logistic Regression Project"
+author: "Benard Omido"
+date: "2024-03-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+
+```{r}
+library(tidyverse)
+library(broom)
+library(fst)
+```
+
+Load the data
+
+```{r}
+churn <- read_fst("churn.fst")
+glimpse(churn)
+```
+Check for null values
+
+```{r}
+#The data set has no null values
+
+colSums(is.na(churn))
+```
+
+Get the summary statistics using skimr
+
+```{r}
+skimr::skim(churn)
+```
+
+In this project, I use a logistic regression model to predict whether a customer will churn given the time they made their first purchase to the company.
+
+**Understanding the variables of interest**
+
+ - has_churned: response variable (1 = churned, 0 = didn't churn)
+ - time_since_first_purchase: explanatory variable (time)
+
+
+```{r}
+#A scatter plot to check the relationship between time_since_first_purchase and has_churned
+
+p1 <- ggplot(churn, aes(time_since_first_purchase, has_churned)) +
+  geom_point() +
+  geom_smooth(method = "glm", se = FALSE, method.args = list(family = binomial))
+
+p1
+```
+
+The scatter plot above shows a negative relationship between the response and explanatory variable. As time since first purchase increases, the likelihood of churning decreases. This implies that longer customer tenure or loyalty is associated with a lower likelihood of churning.
+
+**Fitting a model**
+
+```{r}
+mdl_time_churn <- glm(has_churned ~ time_since_first_purchase, data = churn, family = "binomial")
+summary(mdl_time_churn)
+```
+
+**Interpretation**
+
+- The intercept term represents the log-odds of churning when the time since the first purchase is zero. A -0.01518  intercept indicates a negative log-odds. However, since the p-value > 0.05, it suggests that the intercept is not statistically significant, meaning it may not have a practical interpretation without considering other factors.
+
+- A -0.35479 represents the change in log-odds of churning for a one-unit increase in time since the first purchase while holding other variables constant. 
+As the time since the first purchase increases by one unit, the log-odds of churning decrease by approximately 0.35479 units. Customers who have been with the company longer are less likely to churn compared to newer customers
+
+- In this model, the residual deviance is lower than the null deviance, suggesting that the model provides a better fit than the null model
+
+
+**Making Predictions Using the Model**
+
+```{r}
+#Create a data frame that holds explanatory data that is within the churn data set range
+
+summary(churn$time_since_first_purchase)
+
+explanatory_data <- tibble(time_since_first_purchase = seq(-1.3, 3.8, 0.1))
+head(explanatory_data)
+
+#Use predict() on the fitted model to get the predicted values
+model_predictions <- explanatory_data %>% 
+  mutate(has_churned = predict(mdl_time_churn, explanatory_data, type = "response")
+         )
+
+head(model_predictions)
+```
+
+Adding the above predicted data to the plot to see how well it fits
+
+```{r}
+p1 <- p1 + 
+  geom_point(data = model_predictions, color = "yellow")
+
+p1
+```
+
+**Most likely outcome**
+
+```{r}
+#Add the most likely outcome column to model_predictions data frame
+
+model_predictions <- explanatory_data %>% 
+  mutate(has_churned = predict(mdl_time_churn, explanatory_data, type = "response"),
+         most_likely_outcome = round(has_churned)
+  )
+
+head(model_predictions)
+
+#Visualizing the most likely outcome
+
+p1 <- p1 + 
+  geom_point(aes(y = most_likely_outcome), data = model_predictions, 
+             color = "green")
+
+p1
+```
+
+**Odds ratio** - probability of something happening divided by the probability that it doesn't
+
+```{r}
+#Calculating odds ratio and adding it to the data frame
+
+model_predictions <- explanatory_data %>% 
+  mutate(has_churned = predict(mdl_time_churn, explanatory_data, type = "response"),
+         most_likely_outcome = round(has_churned),
+         odds_ratio = has_churned / (1 - has_churned)
+  )
+
+head(model_predictions)
+
+#Visualizing log odds ratio
+
+ggplot(model_predictions, aes(time_since_first_purchase, odds_ratio)) +
+  geom_line()+
+  geom_hline(yintercept = 1, linetype = "dotted") +
+  scale_y_log10() 
+
+```
+
+**Interpretation**
+
+- Interpreting odds ratios in logistic regression involves understanding how a one-unit change in the explanatory variable affects the odds of the event occurring
+
+- An odds ratio greater than 1 (e.g 1.56) indicates that as the time_since_first_purchase increases by one unit, the odds of the event (churning) happening increase by a factor equal to the odds ratio.
+- An odds ratio less than 1 (e.g., 0.225) indicates that as the time_since_first_purchase increases by one unit, the odds of the event happening decrease by a factor equal to the odds ratio.
+- If time_since_first_purchase increases by one unit, the odds of churning decrease by approximately 0.225 times, indicating a lower likelihood of the event (churning) occurring.
+
+
+**Quantifying logistic regression - confusion matrix**
+
+```{r, message=FALSE}
+library(yardstick)
+
+actual_responses <- churn$has_churned
+predicted_responses <- round(fitted(mdl_time_churn))
+
+model_outcome <- table(predicted_responses, actual_responses)
+model_outcome
+
+#Plot the above table using yardstick package
+confusion_matrix <- conf_mat(model_outcome)
+autoplot(confusion_matrix)
+```
+
+**Insights**
+
+- The model correctly predicted that 124 customers churned (True Positives).
+- There are 88 false positives (customers predicted to churn but didn't).
+- There are 76 false negatives (customers predicted not to churn but did).
+- The model correctly predicted that 112 customers didn't churn (True Negatives).
+
+**Performance metrics**
+
+```{r}
+summary(confusion_matrix, event_level = "second")
+
+#Accuracy
+summary(confusion_matrix) %>% 
+  slice(1)
+
+#An accuracy of 0.59 indicates that the model correctly predicts the outcome about 59% of the time on average.
+
+summary(confusion_matrix) %>% 
+  slice(3)
+
+#A sensitivity of 0.56 means that the model correctly identifies about 56% of the actual positive cases.
+
+summary(confusion_matrix) %>% 
+  slice(4)
+
+#A specificity of 0.62 means that the model correctly identifies about 62% of the actual negative cases.
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
