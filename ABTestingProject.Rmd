@@ -1,0 +1,133 @@
+---
+title: "A/B Testing Project"
+author: "Benard Omido"
+date: "2024-03-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
+```
+
+A company has the A/B test design data from users that have visited their website. The company is interested to determine whether there is a significant difference in the mean amount of money spent between users who saw the Blue and Green ad.
+
+Load the libraries
+
+```{r}
+library(tidyverse)
+```
+
+Load the data
+
+```{r}
+webdata <- read_csv("webdat.csv")
+glimpse(webdata)
+```
+
+Check for null values
+
+```{r}
+colSums(is.na(webdata))
+
+#The data had no null values
+```
+
+
+**Hypotheses**
+
+Null Hypothesis: There is no significant difference in the mean amount of money spent between the group that saw the red ad and the group that saw the blue ad
+
+Alternative Hypothesis: There is a significant difference in the mean amount of money spent between the two groups.
+
+Alpha level = 0.05
+
+**To get an understanding of the distribution of the data in the two groups, create an error bar**
+
+```{r}
+AdData <- webdata %>% 
+  group_by(Adcolor) %>% 
+  summarize(avg_amount = mean(AmountSpent),
+            sd_amount = sd(AmountSpent))
+
+AdData
+
+ggplot(AdData, aes(Adcolor, avg_amount, fill = Adcolor)) +
+  geom_bar(stat = "summary",
+           fun = "mean") +
+  geom_errorbar(aes(ymin = avg_amount - sd_amount,
+                    ymax = avg_amount + sd_amount))
+```
+
+**Interpretation of above error bars**
+
+- The error bars show the range within which the true population mean of amount spent for each AdColor group is likely to fall. The length of the error bars represents the variability or uncertainty in the mean amount spent estimation.
+- Since the error bars for both AdColor groups (Blue and Green) overlap and have similar lengths, it suggests that there may not be a significant difference in the mean amount spent between the Blue and Green AdColor groups.
+
+**Performing t test to ascertain whether there is no significant difference**
+
+Checking Assumptions of a t test first - Normality
+
+```{r}
+#Histogram to check the distribution of the AmountSpent variable in the two groups
+ggplot(webdata, aes(AmountSpent, fill = Adcolor)) +
+  geom_histogram(aes(y = ..density..)) +
+  stat_function(fun = dnorm, color = "red",
+                args = list(mean = mean(webdata$AmountSpent),
+                            sd = sd(webdata$AmountSpent))) +
+  facet_wrap(~Adcolor)
+
+#QQ plots to check normality
+
+ggplot(webdata, aes(sample = AmountSpent)) +
+  stat_qq() +
+  geom_qq_line(color = "red") +
+  facet_wrap(~Adcolor)
+
+```
+
+Using both the histograms and QQ plots, the data is not normally distributed. Thus, we perform a non parametric t test - Mann Whitney U test
+
+**Stating new hypotheses**
+
+Null hypothesis: There is no significant difference in the median amount of money spent between the group that saw the red ad and the group that saw the blue ad
+
+Alternative hypothesis: There is a significant difference in the mean amount of money spent between the two groups.
+
+```{r}
+wilcox.test(AmountSpent ~ Adcolor, data = webdata)
+```
+
+The wilcoxon test above yields a p-value = 0.7461, which is > 0.05. We fail to reject the null hypothesis and conclude that there is no statistically significant difference in the median amount of money spent between the group that saw the red ad and the group that saw the blue ad.
+
+**Calculating effect size and power**
+
+Effect size and power analysis must be computed to determine the confidence that can be had in the t-test results
+
+```{r}
+library(effectsize)
+
+rank_biserial(AmountSpent ~ Adcolor, data = webdata)
+
+#An effect size of -0.03 indicates a very small effect and difference in the groups
+```
+
+Calculate power
+
+```{r}
+library(pwr)
+
+pwr.2p2n.test(h = -0.03, 
+              sig.level = 0.05, 
+              n1 = 100,
+              n2 = 100)
+```
+
+The power value of 0.055 indicates that the Wilcoxon rank sum test performed has a very low probability of correctly detecting a true difference in the median amount spent between the blue and green ad groups. Thus, a high confidence cannot be given in the results.
+
+**Conclusion**
+
+The analysis revealed a non-significant difference in the median amount of money spent between the group exposed to the red ad and the group exposed to the blue ad.
+
+However, it is important to note that the reliability of this finding is uncertain due to factors such as low statistical power and the limited sample size. Confidence in this conclusion is tempered by the potential limitations of the analysis, emphasizing the need for further research with larger sample sizes and careful consideration of variables.
+
+
